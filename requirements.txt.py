@@ -1,0 +1,4 @@
+gradio==4.31.0
+groq
+pandas
+openpyxl
