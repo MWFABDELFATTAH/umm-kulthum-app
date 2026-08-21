@@ -32,11 +32,10 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Forced to use the 70b model for high-quality, non-literal Arabic
+    # Updated to Groq's absolute latest stable model names
     models_to_try = [
         "llama-3.3-70b-versatile",
-        "llama3-70b-8192",
-        "llama3-8b-8192"
+        "llama-3.1-8b-instant"
     ]
     
     for model_name in models_to_try:
@@ -53,12 +52,18 @@ def call_llm(system_prompt, user_prompt):
             return res.choices[0].message.content
         except Exception as e:
             error_str = str(e).lower()
+            # This will print the exact reason Groq rejected the call in your Render logs
+            print(f"Model {model_name} failed with error: {e}")
+            
+            # If it's an authentication error, stop trying immediately
             if "401" in error_str or "invalid api key" in error_str or "authentication" in error_str:
-                return "⚠️ Groq API Error: Your API Key is invalid or missing. Please check your environment variables on Render."
-            print(f"Model {model_name} failed: {e}")
+                return "⚠️ Groq API Error: Your API Key is invalid or missing. Please check your Render environment variables."
+            # If you hit a rate limit, tell the user
+            if "429" in error_str or "rate limit" in error_str:
+                return "⚠️ Groq API Limit: You have sent too many requests. Please wait a minute and try again."
             continue
             
-    return "⚠️ System Error: All AI models failed to respond. Please check your Groq account quota or API key."
+    return "⚠️ System Error: The AI models are currently unavailable. Please check your Render logs for the exact Groq error."
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
@@ -241,7 +246,6 @@ with gr.Blocks() as demo:
             def chat_wrapper(message, history):
                 try:
                     response, map_html, html_media = tri_agent_seminar(message, history)
-                    # FIX: Using the dictionary format required by newer Gradio versions
                     history.append({"role": "user", "content": message})
                     history.append({"role": "assistant", "content": response})
                     return history, "", map_html, html_media
