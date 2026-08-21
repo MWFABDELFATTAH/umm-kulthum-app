@@ -2,38 +2,36 @@ import os
 import pandas as pd
 import gradio as gr
 import re
-import google.generativeai as genai
+import requests
+import json
 
 # ==========================================
-# 1. SETUP GOOGLE GEMINI API
+# 1. SETUP GEMINI API (DIRECT REST CALL)
 # ==========================================
-api_key = os.environ.get("GOOGLE_API_KEY")
-if not api_key:
-    print("WARNING: GOOGLE_API_KEY environment variable is not set on Render!")
-genai.configure(api_key=api_key)
+# Your valid API key
+api_key = "AQ.Ab8RN6LBiAAWsTD_hZIfukktgV72LwOOkhYJUvX2pnUB-81xgw"
 
 # ==========================================
-# 2. DYNAMICALLY FETCH AVAILABLE MODELS
+# 2. FETCH AVAILABLE MODELS
 # ==========================================
-# Instead of guessing, we ask Google what models this API key can use.
 available_models = []
 try:
-    for m in genai.list_models():
-        if 'generateContent' in [s.name for s in m.supported_generation_methods]:
-            available_models.append(m.name.replace("models/", ""))
+    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
+    res = requests.get(url, timeout=10)
+    data = res.json()
+    for m in data.get("models", []):
+        if "generateContent" in m.get("supportedGenerationMethods", []):
+            name = m.get("name", "").replace("models/", "")
+            available_models.append(name)
 except Exception as e:
-    print(f"CRITICAL ERROR: Cannot connect to Google API. Check API Key. Error: {e}")
+    print(f"Error fetching models: {e}")
 
-# Fallback just in case list_models fails, but the key is valid
 if not available_models:
-    available_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+    available_models = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
 
-# Set the best available model as default
-default_model = "gemini-1.5-flash"
-if "gemini-1.5-pro" in available_models:
-    default_model = "gemini-1.5-pro"
-elif available_models:
-    default_model = available_models[0]
+default_model = "gemini-1.5-flash-latest"
+if "gemini-1.5-pro-latest" in available_models:
+    default_model = "gemini-1.5-pro-latest"
 
 # ==========================================
 # 3. LOAD SPATIAL DATASET
@@ -60,28 +58,38 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt, model_name):
-    """Calls the selected Gemini model with strict error handling."""
+    """Calls Gemini directly via HTTP, bypassing the buggy python library."""
+    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
+    headers = {"Content-Type": "application/json"}
+    payload = {
+        "system_instruction": {
+            "parts": [{"text": system_prompt}]
+        },
+        "contents": [
+            {"role": "user", "parts": [{"text": user_prompt}]}
+        ],
+        "generationConfig": {
+            "temperature": 0.4,
+            "maxOutputTokens": 2000
+        }
+    }
+    
     try:
-        model = genai.GenerativeModel(
-            model_name=model_name,
-            system_instruction=system_prompt
-        )
-        response = model.generate_content(
-            user_prompt,
-            generation_config=genai.GenerationConfig(
-                temperature=0.4,
-                max_output_tokens=2000
-            )
-        )
-        return response.text
-    except Exception as e:
-        error_str = str(e).lower()
-        if "api key not valid" in error_str or "401" in error_str or "403" in error_str:
-            return "⚠️ Gemini API Error: Your Google API Key is invalid. Please check your Render Environment variables."
-        if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
+        res = requests.post(url, headers=headers, json=payload, timeout=120)
+        res.raise_for_status()
+        data = res.json()
+        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        return text if text else "⚠️ No response generated."
+    except requests.exceptions.HTTPError as e:
+        error_msg = e.response.text
+        if "API key not valid" in error_msg or "401" in error_msg or "403" in error_msg:
+            return "⚠️ Gemini API Error: The API Key is invalid or has been restricted."
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
             return "⚠️ Gemini API Limit: You have reached the free tier limit. Please wait a minute and try again."
-        if "404" in error_str or "not found" in error_str:
-            return f"⚠️ Model Error: The model '{model_name}' is not available for your API key."
+        if "404" in error_msg or "NOT_FOUND" in error_msg:
+            return f"⚠️ Model Error: The model '{model_name}' is not available. Please select a different model."
+        return f"⚠️ System Error: {error_msg}"
+    except Exception as e:
         return f"⚠️ System Error: {str(e)}"
 
 def extract_youtube_id(url):
@@ -256,7 +264,6 @@ with gr.Blocks() as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / المراجع والروابط")
         
         with gr.Column(scale=2):
-            # Dynamically populated dropdown based on what your API key actually allows
             model_selector = gr.Dropdown(
                 choices=available_models,
                 value=default_model,
