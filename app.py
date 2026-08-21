@@ -58,7 +58,7 @@ def call_llm(system_prompt, user_prompt, model_name):
         if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
             return "⚠️ Gemini API Limit: You have reached the free tier limit. Please wait a minute and try again."
         if "404" in error_str or "not found" in error_str:
-            return f"⚠️ Model Error: The model '{model_name}' is not available. Please select a different model from the dropdown."
+            return f"⚠️ Model Error: The model '{model_name}' is not available for your API key. Please select a different model from the dropdown."
         return f"⚠️ System Error: {str(e)}"
 
 def extract_youtube_id(url):
@@ -237,9 +237,10 @@ with gr.Blocks() as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / المراجع والروابط")
         
         with gr.Column(scale=2):
+            # FIX: Using exact versioned model names to prevent 404 errors permanently
             model_selector = gr.Dropdown(
-                choices=["gemini-1.5-pro-latest", "gemini-1.5-flash-latest", "gemini-1.5-flash-8b-latest", "gemini-1.5-pro-002"],
-                value="gemini-1.5-pro-latest",
+                choices=["gemini-1.5-pro-002", "gemini-1.5-flash-002", "gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash"],
+                value="gemini-1.5-pro-002",
                 label="Select AI Model / اختر نموذج الذكاء الاصطناعي",
                 interactive=True
             )
