@@ -4,7 +4,7 @@ from groq import Groq
 import gradio as gr
 import re
 
-# 1. Setup Groq API (Using your new key)
+# 1. Setup Groq API
 client = Groq(api_key=os.environ.get("GROQ_API_KEY", "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"))
 
 # 2. Load Spatial Dataset
@@ -25,9 +25,9 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Using OpenAI GPT-OSS 20B (Groq's newest, fastest model)
+    # Using OpenAI GPT-OSS 120B (Best model for native Arabic)
     res = client.chat.completions.create(
-        model="openai/gpt-oss-20b",
+        model="openai/gpt-oss-120b",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
@@ -138,8 +138,10 @@ def tri_agent_seminar(user_prompt, history):
             "You are Umm Kulthum. Answer the user question based ONLY on the provided map context. "
             "You MUST incorporate details from EVERY cell of the provided dataset (Site Name, Date, People, Songs, Description, etc.) into your response. "
             "Do NOT hallucinate or invent any information. Speak with a clear, personal, and human touch, as if you are remembering your own life, but do not exaggerate. "
-            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
-            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
+            "You MUST respond BILINGUALLY: first in English (strictly exactly 2 paragraphs), then in Arabic (strictly exactly 2 paragraphs). "
+            "CRITICAL RULE FOR ARABIC: Do NOT do a literal translation. Write eloquent, native Modern Standard Arabic (الفصحى) that sounds natural to an Arabic speaker. "
+            "NEVER use English letters or Latin numerals inside the Arabic paragraphs (e.g., write أم كلثوم not Umm Kulthum, write الثلاثينيات not 1930s). "
+            "Use this format:\n[English]\n<exactly 2 paragraphs>\n\n[العربية]\n<exactly 2 paragraphs>"
         )
         response_umm = call_llm(agent1_system, full_prompt)
         
@@ -147,8 +149,10 @@ def tri_agent_seminar(user_prompt, history):
             "You are the historian Pierre Nora. Analyze the map spot and Umm Kulthum's response as a 'lieu de mémoire' (site of memory). "
             "You MUST reference the specific details provided in the dataset (dates, people, descriptions) to support your analysis. "
             "Explain how memory crystallizes here and why it matters based strictly on the provided data. "
-            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
-            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
+            "You MUST respond BILINGUALLY: first in English (strictly exactly 2 paragraphs), then in Arabic (strictly exactly 2 paragraphs). "
+            "CRITICAL RULE FOR ARABIC: Do NOT do a literal translation. Write eloquent, native Modern Standard Arabic (الفصحى) that sounds natural to an Arabic speaker. "
+            "NEVER use English letters or Latin numerals inside the Arabic paragraphs (e.g., write بيير نورا not Pierre Nora, write الثلاثينيات not 1930s). "
+            "Use this format:\n[English]\n<exactly 2 paragraphs>\n\n[العربية]\n<exactly 2 paragraphs>"
         )
         agent2_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm
         response_nora = call_llm(agent2_system, agent2_prompt)
@@ -157,8 +161,10 @@ def tri_agent_seminar(user_prompt, history):
             "You are the philosopher Henri Lefebvre. Analyze the map spot using the spatial triad (perceived, conceived, lived space). "
             "You MUST reference the specific details provided in the dataset (event type, location info, descriptions) to support your analysis. "
             "Focus on the social production of space, gender, and power based strictly on the provided data. "
-            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
-            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
+            "You MUST respond BILINGUALLY: first in English (strictly exactly 2 paragraphs), then in Arabic (strictly exactly 2 paragraphs). "
+            "CRITICAL RULE FOR ARABIC: Do NOT do a literal translation. Write eloquent, native Modern Standard Arabic (الفصحى) that sounds natural to an Arabic speaker. "
+            "NEVER use English letters or Latin numerals inside the Arabic paragraphs (e.g., write هنري لوفيفر not Henri Lefebvre, write الثلاثينيات not 1930s). "
+            "Use this format:\n[English]\n<exactly 2 paragraphs>\n\n[العربية]\n<exactly 2 paragraphs>"
         )
         agent3_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm + "\nNora's response: " + response_nora
         response_lefebvre = call_llm(agent3_system, agent3_prompt)
@@ -196,5 +202,4 @@ with gr.Blocks() as demo:
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
 
-# Fixed for Render: server_port and inbrowser=False
 demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), inbrowser=False)
