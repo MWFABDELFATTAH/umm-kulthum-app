@@ -5,7 +5,10 @@ import gradio as gr
 import re
 
 # 1. Setup Groq Cloud API
-client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
+api_key = os.environ.get("GROQ_API_KEY")
+if not api_key:
+    print("WARNING: GROQ_API_KEY environment variable is not set!")
+client = Groq(api_key=api_key)
 
 # 2. Load Spatial Dataset
 try:
@@ -29,10 +32,11 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
+    # Using the 70b model for much better Arabic translation and reasoning
     models_to_try = [
+        "llama-3.3-70b-versatile",
         "llama-3.1-8b-instant",
-        "llama3-8b-8192",
-        "gemma2-9b-it"
+        "llama3-8b-8192"
     ]
     
     for model_name in models_to_try:
@@ -43,7 +47,7 @@ def call_llm(system_prompt, user_prompt):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3,
+                temperature=0.4,
                 max_tokens=2000
             )
             return res.choices[0].message.content
@@ -51,7 +55,7 @@ def call_llm(system_prompt, user_prompt):
             print(f"Model {model_name} failed: {e}")
             continue
             
-    return "⚠️ System Error: All AI models are currently unavailable. Please try again later."
+    return "⚠️ System Error: All AI models are currently unavailable. Please check your API key."
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
@@ -71,6 +75,9 @@ def tri_agent_seminar(user_prompt, history):
     try:
         global current_pin_context, current_pin_coords, current_pin_name, current_pin_city
         match_df = pd.DataFrame()
+        
+        if df.empty:
+            return "Error: Dataset failed to load. Did you upload 'umm_kulthum_dataset.xlsx' to Render?", generate_map_html(current_pin_coords), ""
         
         numbers = re.findall(r'\b(\d+)\b', user_prompt)
         if not numbers:
@@ -154,15 +161,18 @@ def tri_agent_seminar(user_prompt, history):
         
         bilingual_format = """
         CRITICAL LANGUAGE INSTRUCTIONS:
-        You MUST respond in BOTH English and Standard Arabic (الفصحى).
+        You MUST respond in BOTH English and Standard Arabic (اللغة العربية الفصحى).
         Format your response EXACTLY like this:
         🇬🇧 English:
-        [Your 2 paragraphs in English here]
+        [Your detailed English response here]
 
         🇸🇦 العربية:
-        [Your 2 paragraphs in Standard Arabic here. 
-        STRICT ARABIC RULE: Use ONLY Modern Standard Arabic (الفصحى). Do NOT use any colloquial dialects (عامية). 
-        Grammar and vocabulary must be perfect, realistic, and professional. Do not make up Arabic words.]
+        [Your detailed Arabic response here.
+        STRICT ARABIC RULES:
+        1. Use ONLY Modern Standard Arabic (الفصحى). Do NOT use any colloquial dialects (عامية).
+        2. Do NOT provide a literal word-for-word translation. Adapt the phrasing so it sounds natural, eloquent, and academically appropriate for an Arabic speaker.
+        3. The Arabic text must flow naturally. Avoid exaggerated or dramatic tone. Keep it realistic and factual.
+        4. Grammar and vocabulary must be perfect.]
         """
         
         agent1_system = (
