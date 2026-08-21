@@ -132,7 +132,7 @@ def tri_agent_seminar(user_prompt, history):
         media_html = ""
         
         for url in av_links:
-            vid_id = extract_youtube_id(url) if not isinstance(url, str) else url) # Minor fallback safety
+            vid_id = extract_youtube_id(url)
             if vid_id:
                 media_html += f'<iframe width="100%" height="315" src="https://www.youtube.com/embed/{vid_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe><br><br>'
                 break
@@ -216,7 +216,6 @@ with gr.Blocks() as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
         
         with gr.Column(scale=2):
-            # Removed type="messages" for Render compatibility
             chatbot = gr.Chatbot(height=500) 
             msg_input = gr.Textbox(
                 label="Enter a CODE number (1-151) / أدخل رقم الكود (1-151)...", 
@@ -228,7 +227,6 @@ with gr.Blocks() as demo:
             
             def chat_wrapper(message, history):
                 response, map_html, html_media = tri_agent_seminar(message, history)
-                # Reverted to tuple format for older Gradio compatibility
                 history.append((message, response))
                 return history, "", map_html, html_media
 
