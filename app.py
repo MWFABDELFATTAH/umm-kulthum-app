@@ -25,9 +25,9 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Using Llama 3.1 8b Instant (Extremely fast and excellent at Arabic)
+    # Using OpenAI GPT-OSS 20B (Groq's newest, fastest model)
     res = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
+        model="openai/gpt-oss-20b",
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt}
