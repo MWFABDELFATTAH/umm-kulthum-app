@@ -13,7 +13,30 @@ if not api_key:
 genai.configure(api_key=api_key)
 
 # ==========================================
-# 2. LOAD SPATIAL DATASET
+# 2. DYNAMICALLY FETCH AVAILABLE MODELS
+# ==========================================
+# Instead of guessing, we ask Google what models this API key can use.
+available_models = []
+try:
+    for m in genai.list_models():
+        if 'generateContent' in [s.name for s in m.supported_generation_methods]:
+            available_models.append(m.name.replace("models/", ""))
+except Exception as e:
+    print(f"CRITICAL ERROR: Cannot connect to Google API. Check API Key. Error: {e}")
+
+# Fallback just in case list_models fails, but the key is valid
+if not available_models:
+    available_models = ["gemini-1.5-flash", "gemini-1.5-pro"]
+
+# Set the best available model as default
+default_model = "gemini-1.5-flash"
+if "gemini-1.5-pro" in available_models:
+    default_model = "gemini-1.5-pro"
+elif available_models:
+    default_model = available_models[0]
+
+# ==========================================
+# 3. LOAD SPATIAL DATASET
 # ==========================================
 try:
     df = pd.read_excel("umm_kulthum_dataset.xlsx")
@@ -23,7 +46,7 @@ except Exception as e:
     df = pd.DataFrame()
 
 # ==========================================
-# 3. STATE & UTILITY FUNCTIONS
+# 4. STATE & UTILITY FUNCTIONS
 # ==========================================
 current_pin_coords = [30.0444, 31.2357]
 current_pin_name = "Cairo"
@@ -58,7 +81,7 @@ def call_llm(system_prompt, user_prompt, model_name):
         if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
             return "⚠️ Gemini API Limit: You have reached the free tier limit. Please wait a minute and try again."
         if "404" in error_str or "not found" in error_str:
-            return f"⚠️ Model Error: The model '{model_name}' is not available for your API key. Please select a different model from the dropdown."
+            return f"⚠️ Model Error: The model '{model_name}' is not available for your API key."
         return f"⚠️ System Error: {str(e)}"
 
 def extract_youtube_id(url):
@@ -76,7 +99,7 @@ def extract_all_urls(text):
     return [url.rstrip('.,;)') for url in urls]
 
 # ==========================================
-# 4. TRI-AGENT SEMINAR CORE LOGIC
+# 5. TRI-AGENT SEMINAR CORE LOGIC
 # ==========================================
 def tri_agent_seminar(user_prompt, history, selected_model):
     global current_pin_coords, current_pin_name, current_pin_city
@@ -180,7 +203,6 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         4. Ensure perfect grammar and appropriate academic terminology.]
         """
         
-        # AGENT 1: Umm Kulthum
         agent1_system = (
             "You are Umm Kulthum. Answer the user question based ONLY on the provided map context. "
             "You MUST incorporate details from EVERY cell of the provided dataset (Site Name, Date, People, Songs, Description, etc.) into your response. "
@@ -190,7 +212,6 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         )
         response_umm = call_llm(agent1_system, full_prompt, selected_model)
         
-        # AGENT 2: Pierre Nora
         agent2_system = (
             "You are the historian Pierre Nora. Analyze the map spot and Umm Kulthum's response as a 'lieu de mémoire' (site of memory). "
             "You MUST reference the specific details provided in the dataset (dates, people, descriptions) to support your analysis. "
@@ -201,7 +222,6 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         agent2_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm
         response_nora = call_llm(agent2_system, agent2_prompt, selected_model)
         
-        # AGENT 3: Henri Lefebvre
         agent3_system = (
             "You are the philosopher Henri Lefebvre. Analyze the map spot using the spatial triad (perceived, conceived, lived space). "
             "You MUST reference the specific details provided in the dataset (event type, location info, descriptions) to support your analysis. "
@@ -212,7 +232,6 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         agent3_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm + "\nNora's response: " + response_nora
         response_lefebvre = call_llm(agent3_system, agent3_prompt, selected_model)
         
-        # FINAL OUTPUT FORMATTING
         final_output = f"**📍 Map Synchronized to / تمت مزامنة الخريطة مع: {current_pin_name} ({current_pin_city})**\n\n*Model Used: {selected_model}*\n\n---\n\n"
         final_output += f"**1. Umm Kulthum (Experiential / التجربة المعاشة):**\n{response_umm}\n\n---\n\n"
         final_output += f"**2. Pierre Nora (Memory / ذاكرة المكان):**\n{response_nora}\n\n---\n\n"
@@ -225,7 +244,7 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         return error_msg, generate_map_html(current_pin_coords), "<p>Error loading media.</p>"
 
 # ==========================================
-# 5. GRADIO UI
+# 6. GRADIO UI
 # ==========================================
 with gr.Blocks() as demo:
     gr.Markdown("# Geospatial Seminar: Umm Kulthum\n# الندوة الجغرافية التفاعلية: أم كلثوم")
@@ -237,10 +256,10 @@ with gr.Blocks() as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / المراجع والروابط")
         
         with gr.Column(scale=2):
-            # FIX: Using exact versioned model names to prevent 404 errors permanently
+            # Dynamically populated dropdown based on what your API key actually allows
             model_selector = gr.Dropdown(
-                choices=["gemini-1.5-pro-002", "gemini-1.5-flash-002", "gemini-2.0-flash-001", "gemini-1.5-pro", "gemini-1.5-flash"],
-                value="gemini-1.5-pro-002",
+                choices=available_models,
+                value=default_model,
                 label="Select AI Model / اختر نموذج الذكاء الاصطناعي",
                 interactive=True
             )
@@ -267,5 +286,4 @@ with gr.Blocks() as demo:
             msg_input.submit(chat_wrapper, [msg_input, chatbot, model_selector], [chatbot, msg_input, map_output, audio_output])
             submit_btn.click(chat_wrapper, [msg_input, chatbot, model_selector], [chatbot, msg_input, map_output, audio_output])
 
-# Launch the app
 demo.launch(server_name="0.0.0.0", inbrowser=True)
