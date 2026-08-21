@@ -5,7 +5,6 @@ import gradio as gr
 import re
 
 # 1. Setup Groq Cloud API
-# Make sure your GROQ_API_KEY is set in your environment variables before running.
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 # 2. Load Spatial Dataset
@@ -14,11 +13,11 @@ try:
     df.columns = df.columns.str.strip()
 except Exception as e:
     print(f"Error loading Excel file: {e}")
-    df = pd.DataFrame() # Empty dataframe to prevent crash on startup
+    df = pd.DataFrame()
 
 # 3. Stateful Spatial Context Variables
 current_pin_context = ""
-current_pin_coords = [30.0444, 31.2357] # Default to Cairo
+current_pin_coords = [30.0444, 31.2357]
 current_pin_name = "Cairo"
 current_pin_city = "Egypt"
 
@@ -30,9 +29,6 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    """
-    Future-proof LLM caller. Tries multiple models in case one is deprecated.
-    """
     models_to_try = [
         "llama-3.1-8b-instant",
         "llama3-8b-8192",
@@ -47,7 +43,7 @@ def call_llm(system_prompt, user_prompt):
                     {"role": "system", "content": system_prompt},
                     {"role": "user", "content": user_prompt}
                 ],
-                temperature=0.3, # Lower temperature = more realistic, less hallucinated
+                temperature=0.3,
                 max_tokens=2000
             )
             return res.choices[0].message.content
@@ -98,7 +94,6 @@ def tri_agent_seminar(user_prompt, history):
         city_val = row.get('City/ Country')
         current_pin_city = str(city_val) if pd.notna(city_val) else 'Unknown Location'
         
-        # Strict Context to prevent hallucinations
         current_pin_context = f"""
         STRICT RULE: You must ONLY use the information provided below. Do not invent or hallucinate any facts, dates, people, or songs.
         You MUST incorporate details from EVERY cell of the provided dataset into your response.
@@ -137,7 +132,7 @@ def tri_agent_seminar(user_prompt, history):
         media_html = ""
         
         for url in av_links:
-            vid_id = extract_youtube_id(url)
+            vid_id = extract_youtube_id(url) if not isinstance(url, str) else url) # Minor fallback safety
             if vid_id:
                 media_html += f'<iframe width="100%" height="315" src="https://www.youtube.com/embed/{vid_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe><br><br>'
                 break
@@ -157,7 +152,6 @@ def tri_agent_seminar(user_prompt, history):
         
         full_prompt = current_pin_context + "\nUser Question: " + user_prompt
         
-        # Bilingual Format Rule applied to all agents
         bilingual_format = """
         CRITICAL LANGUAGE INSTRUCTIONS:
         You MUST respond in BOTH English and Standard Arabic (الفصحى).
@@ -222,8 +216,8 @@ with gr.Blocks() as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
         
         with gr.Column(scale=2):
-            # Using type="messages" for modern Gradio compatibility
-            chatbot = gr.Chatbot(height=500, type="messages") 
+            # Removed type="messages" for Render compatibility
+            chatbot = gr.Chatbot(height=500) 
             msg_input = gr.Textbox(
                 label="Enter a CODE number (1-151) / أدخل رقم الكود (1-151)...", 
                 placeholder="e.g., 13"
@@ -234,12 +228,11 @@ with gr.Blocks() as demo:
             
             def chat_wrapper(message, history):
                 response, map_html, html_media = tri_agent_seminar(message, history)
-                history.append({"role": "user", "content": message})
-                history.append({"role": "assistant", "content": response})
+                # Reverted to tuple format for older Gradio compatibility
+                history.append((message, response))
                 return history, "", map_html, html_media
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
             submit_btn.click(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
 
-# server_name="0.0.0.0" allows other devices on your university network to connect
 demo.launch(server_name="0.0.0.0", inbrowser=True)
