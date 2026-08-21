@@ -1,14 +1,14 @@
 import os
 import pandas as pd
-from groq import Groq
 import gradio as gr
 import re
+import google.generativeai as genai
 
-# 1. Setup Groq Cloud API
-api_key = os.environ.get("GROQ_API_KEY")
+# 1. Setup Google Gemini API
+api_key = os.environ.get("GOOGLE_API_KEY")
 if not api_key:
-    print("WARNING: GROQ_API_KEY environment variable is not set on Render!")
-client = Groq(api_key=api_key)
+    print("WARNING: GOOGLE_API_KEY environment variable is not set on Render!")
+genai.configure(api_key=api_key)
 
 # 2. Load Spatial Dataset
 try:
@@ -32,38 +32,27 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Updated to Groq's absolute latest stable model names
-    models_to_try = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant"
-    ]
-    
-    for model_name in models_to_try:
-        try:
-            res = client.chat.completions.create(
-                model=model_name,
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt}
-                ],
+    try:
+        # gemini-1.5-flash is highly stable, fast, and has excellent Arabic
+        model = genai.GenerativeModel(
+            model_name="gemini-1.5-flash",
+            system_instruction=system_prompt
+        )
+        response = model.generate_content(
+            user_prompt,
+            generation_config=genai.GenerationConfig(
                 temperature=0.4,
-                max_tokens=2000
+                max_output_tokens=2000
             )
-            return res.choices[0].message.content
-        except Exception as e:
-            error_str = str(e).lower()
-            # This will print the exact reason Groq rejected the call in your Render logs
-            print(f"Model {model_name} failed with error: {e}")
-            
-            # If it's an authentication error, stop trying immediately
-            if "401" in error_str or "invalid api key" in error_str or "authentication" in error_str:
-                return "⚠️ Groq API Error: Your API Key is invalid or missing. Please check your Render environment variables."
-            # If you hit a rate limit, tell the user
-            if "429" in error_str or "rate limit" in error_str:
-                return "⚠️ Groq API Limit: You have sent too many requests. Please wait a minute and try again."
-            continue
-            
-    return "⚠️ System Error: The AI models are currently unavailable. Please check your Render logs for the exact Groq error."
+        )
+        return response.text
+    except Exception as e:
+        error_str = str(e).lower()
+        if "api key not valid" in error_str or "401" in error_str or "403" in error_str:
+            return "⚠️ Gemini API Error: Your Google API Key is invalid. Please check your Render Environment variables."
+        if "429" in error_str or "quota" in error_str or "rate limit" in error_str:
+            return "⚠️ Gemini API Limit: You have reached the free tier limit. Please wait a minute and try again."
+        return f"⚠️ System Error: {str(e)}"
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
