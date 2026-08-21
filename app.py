@@ -179,7 +179,8 @@ bilingual_css = """
 .message-wrap { font-size: 15px; line-height: 1.7; }
 """
 
-with gr.Blocks(css=bilingual_css) as demo:
+# Removed css= from gr.Blocks to fix Gradio 6.0 warning
+with gr.Blocks() as demo:
     gr.Markdown("# Tri-Agent Spatial Seminar: Umm Kulthum / الندوة المكانية ثلاثية الوكلاء: أم كلثوم")
     gr.Markdown("Enter a CODE number between 1 and 151. / أدخل رقم كود بين 1 و 151.")
     
@@ -189,7 +190,8 @@ with gr.Blocks(css=bilingual_css) as demo:
             audio_output = gr.HTML(value="<p>Audio and references will appear here. / ستظهر الروابط الصوتية والمرجعية هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
         
         with gr.Column(scale=2):
-            chatbot = gr.Chatbot(height=450, type="messages")
+            # Removed type="messages" to fix Gradio 6.0 TypeError
+            chatbot = gr.Chatbot(height=450)
             msg_input = gr.Textbox(label="Enter a CODE number (1-151)... / أدخل رقم الكود (1-151)...", placeholder="e.g., 13")
             clear_btn = gr.ClearButton([msg_input, chatbot])
             
@@ -201,4 +203,5 @@ with gr.Blocks(css=bilingual_css) as demo:
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
 
-demo.launch(server_name="0.0.0.0", inbrowser=True)
+# Passed css to launch() and added server_port to fix Render open port detection
+demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), css=bilingual_css)
