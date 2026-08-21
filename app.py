@@ -7,7 +7,7 @@ import re
 # 1. Setup Groq Cloud API
 api_key = os.environ.get("GROQ_API_KEY")
 if not api_key:
-    print("WARNING: GROQ_API_KEY environment variable is not set!")
+    print("WARNING: GROQ_API_KEY environment variable is not set on Render!")
 client = Groq(api_key=api_key)
 
 # 2. Load Spatial Dataset
@@ -32,10 +32,10 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Using the 70b model for much better Arabic translation and reasoning
+    # Forced to use the 70b model for high-quality, non-literal Arabic
     models_to_try = [
         "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
         "llama3-8b-8192"
     ]
     
@@ -52,10 +52,14 @@ def call_llm(system_prompt, user_prompt):
             )
             return res.choices[0].message.content
         except Exception as e:
+            error_str = str(e).lower()
+            # If API key is invalid, stop trying other models and return the exact error
+            if "401" in error_str or "invalid api key" in error_str or "authentication" in error_str:
+                return "⚠️ Groq API Error: Your API Key is invalid or missing. Please check your environment variables on Render."
             print(f"Model {model_name} failed: {e}")
             continue
             
-    return "⚠️ System Error: All AI models are currently unavailable. Please check your API key."
+    return "⚠️ System Error: All AI models failed to respond. Please check your Groq account quota or API key."
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
@@ -81,7 +85,7 @@ def tri_agent_seminar(user_prompt, history):
         
         numbers = re.findall(r'\b(\d+)\b', user_prompt)
         if not numbers:
-            return "Please enter a valid CODE number between 1 and 151.\nيرجى إدخال رقم كود صالح بين 1 و 151.", generate_map_html(current_pin_coords), ""
+            return "Please enter a valid CODE number between 1 and 151.\nيرجى إدخال رقم صالح بين 1 و 151.", generate_map_html(current_pin_coords), ""
         
         code_num = numbers[0]
         
@@ -91,7 +95,7 @@ def tri_agent_seminar(user_prompt, history):
             return "Error: Column 'CODE' not found in dataset.", generate_map_html(current_pin_coords), ""
         
         if match_df.empty:
-            return f"Could not find a location with CODE {code_num}.\nتعذر العثور على موقع برمز {code_num}.", generate_map_html(current_pin_coords), ""
+            return f"Could not find a location with CODE {code_num}.\nتعذر العثور على موقع يحمل الرقم {code_num}.", generate_map_html(current_pin_coords), ""
         
         row = match_df.iloc[0]
         
@@ -155,24 +159,24 @@ def tri_agent_seminar(user_prompt, history):
                 media_html += f'<a href="{url}" target="_blank" style="display: block; color: blue; text-decoration: underline;">{url}</a>'
                 
         if not media_html:
-            media_html = "<p>No audio/video or reference links available for this location.<br>لا توجد روابط صوت/فيديو أو مراجع لهذا الموقع.</p>"
+            media_html = "<p>No audio/video or reference links available for this location.<br>لا توجد روابط صوتية أو مرئية لهذا الموقع.</p>"
         
         full_prompt = current_pin_context + "\nUser Question: " + user_prompt
         
         bilingual_format = """
         CRITICAL LANGUAGE INSTRUCTIONS:
-        You MUST respond in BOTH English and Standard Arabic (اللغة العربية الفصحى).
+        You MUST provide your analysis in BOTH English and Standard Arabic (اللغة العربية الفصحى).
         Format your response EXACTLY like this:
         🇬🇧 English:
-        [Your detailed English response here]
+        [Your 2 paragraphs in English here]
 
         🇸🇦 العربية:
-        [Your detailed Arabic response here.
+        [Your 2 paragraphs in Arabic here.
         STRICT ARABIC RULES:
         1. Use ONLY Modern Standard Arabic (الفصحى). Do NOT use any colloquial dialects (عامية).
-        2. Do NOT provide a literal word-for-word translation. Adapt the phrasing so it sounds natural, eloquent, and academically appropriate for an Arabic speaker.
-        3. The Arabic text must flow naturally. Avoid exaggerated or dramatic tone. Keep it realistic and factual.
-        4. Grammar and vocabulary must be perfect.]
+        2. Do NOT translate literally from the English version. Compose the Arabic text natively so it sounds eloquent, academic, and natural to an Arab academic.
+        3. Avoid exaggeration. Keep the tone realistic, factual, and deeply analytical.
+        4. Ensure perfect grammar and appropriate academic terminology.]
         """
         
         agent1_system = (
@@ -204,10 +208,10 @@ def tri_agent_seminar(user_prompt, history):
         agent3_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm + "\nNora's response: " + response_nora
         response_lefebvre = call_llm(agent3_system, agent3_prompt)
         
-        final_output = f"**📍 Map Synchronized to / تم مزامنة الخريطة مع: {current_pin_name} ({current_pin_city})**\n\n---\n\n"
-        final_output += f"**1. Umm Kulthum (Experiential / التجربة الحية):**\n{response_umm}\n\n---\n\n"
-        final_output += f"**2. Pierre Nora (Memory / الذاكرة):**\n{response_nora}\n\n---\n\n"
-        final_output += f"**3. Henri Lefebvre (Space / الفضاء):**\n{response_lefebvre}"
+        final_output = f"**📍 Map Synchronized to / تمت مزامنة الخريطة مع: {current_pin_name} ({current_pin_city})**\n\n---\n\n"
+        final_output += f"**1. Umm Kulthum (Experiential / التجربة المعاشة):**\n{response_umm}\n\n---\n\n"
+        final_output += f"**2. Pierre Nora (Memory / ذاكرة المكان):**\n{response_nora}\n\n---\n\n"
+        final_output += f"**3. Henri Lefebvre (Space / إنتاج الفضاء):**\n{response_lefebvre}"
         
         return final_output, generate_map_html(current_pin_coords), media_html
 
@@ -217,18 +221,19 @@ def tri_agent_seminar(user_prompt, history):
 
 # --- GRADIO UI ---
 with gr.Blocks() as demo:
-    gr.Markdown("# Tri-Agent Spatial Seminar: Umm Kulthum\n# ندوة الفضاء ثلاثية الوكلاء: أم كلثوم")
-    gr.Markdown("Enter a CODE number between 1 and 151 to begin the spatial seminar.\nأدخل رقم كود بين 1 و 151 لبدء الندوة المكانية.")
+    # Fixed Arabic Title to be academically correct
+    gr.Markdown("# Geospatial Seminar: Umm Kulthum\n# الندوة الجغرافية التفاعلية: أم كلثوم")
+    gr.Markdown("Enter a CODE number between 1 and 151 to begin the spatial seminar.\nأدخل رقماً بين 1 و 151 لبدء الندوة الجغرافية.")
     
     with gr.Row():
         with gr.Column(scale=1):
             map_output = gr.HTML(value=generate_map_html(current_pin_coords), label="Spatial Context / السياق المكاني")
-            audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
+            audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / المراجع والروابط")
         
         with gr.Column(scale=2):
             chatbot = gr.Chatbot(height=500) 
             msg_input = gr.Textbox(
-                label="Enter a CODE number (1-151) / أدخل رقم الكود (1-151)...", 
+                label="Enter a CODE number (1-151) / أدخل الرقم (1-151)...", 
                 placeholder="e.g., 13"
             )
             with gr.Row():
@@ -236,9 +241,14 @@ with gr.Blocks() as demo:
                 clear_btn = gr.ClearButton([msg_input, chatbot], value="Clear / مسح")
             
             def chat_wrapper(message, history):
-                response, map_html, html_media = tri_agent_seminar(message, history)
-                history.append((message, response))
-                return history, "", map_html, html_media
+                try:
+                    response, map_html, html_media = tri_agent_seminar(message, history)
+                    history.append((message, response))
+                    return history, "", map_html, html_media
+                except Exception as e:
+                    # This will catch any Gradio-specific UI errors and show them in the chat
+                    history.append((message, f"UI Error: {str(e)}"))
+                    return history, "", generate_map_html(current_pin_coords), "<p>Error</p>"
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
             submit_btn.click(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
