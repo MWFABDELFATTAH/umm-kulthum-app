@@ -4,7 +4,7 @@ import google.generativeai as genai
 import gradio as gr
 import re
 
-# 1. Setup Gemini API (with your provided key)
+# 1. Setup Gemini API (Using your key and Gemini 3.7 Flash)
 genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LBiAAWsTD_hZIfukktgV72LwOOkhYJUvX2pnUB-81xgw"))
 
 # 2. Load Spatial Dataset
@@ -25,9 +25,9 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Using Gemini 1.5 Flash for fast, reliable responses
+    # Using Gemini 3.7 Flash
     model = genai.GenerativeModel(
-        model_name="gemini-1.5-flash",
+        model_name="gemini-3.7-flash",
         system_instruction=system_prompt
     )
     res = model.generate_content(user_prompt)
@@ -54,7 +54,7 @@ def tri_agent_seminar(user_prompt, history):
         
         numbers = re.findall(r'\b(\d+)\b', user_prompt)
         if not numbers:
-            return "Please enter a valid CODE number between 1 and 151.\n\nالرجاء إدخال رقم كود صحيح بين 1 و 151.", generate_map_html(current_pin_coords), ""
+            return "Please enter a valid CODE number between 1 and 151.", generate_map_html(current_pin_coords), ""
         
         code_num = numbers[0]
         
@@ -64,7 +64,7 @@ def tri_agent_seminar(user_prompt, history):
             return f"Error: Column 'CODE' not found.", generate_map_html(current_pin_coords), ""
         
         if match_df.empty:
-            return f"Could not find a location with CODE {code_num}.\n\nلم يتم العثور على موقع بهذا الكود {code_num}.", generate_map_html(current_pin_coords), ""
+            return f"Could not find a location with CODE {code_num}.", generate_map_html(current_pin_coords), ""
         
         row = match_df.iloc[0]
         
@@ -162,37 +162,28 @@ def tri_agent_seminar(user_prompt, history):
         response_lefebvre = call_llm(agent3_system, agent3_prompt)
         
         final_output = f"**📍 Map Synchronized to: {current_pin_name} ({current_pin_city})**\n\n"
-        final_output += f"**Umm Kulthum (Experiential) / أم كلثوم (الجانب التجريبي):**\n{response_umm}\n\n"
-        final_output += f"**Pierre Nora (Memory) / بيير نورا (الذاكرة):**\n{response_nora}\n\n"
-        final_output += f"**Henri Lefebvre (Space) / هنري لوفيفر (المكان):**\n{response_lefebvre}"
+        final_output += f"**Umm Kulthum (Experiential):**\n{response_umm}\n\n"
+        final_output += f"**Pierre Nora (Memory):**\n{response_nora}\n\n"
+        final_output += f"**Henri Lefebvre (Space):**\n{response_lefebvre}"
         
         return final_output, generate_map_html(current_pin_coords), media_html
 
     except Exception as e:
-        error_msg = f"**An internal error occurred:** {str(e)}\n\n**حدث خطأ داخلي:** {str(e)}"
+        error_msg = f"**An internal error occurred:** {str(e)}"
         return error_msg, generate_map_html(current_pin_coords), "<p>Error loading media.</p>"
 
-# Bilingual CSS with RTL support for Arabic
-bilingual_css = """
-.gradio-container { direction: ltr; }
-.arabic, [lang="ar"], :lang(ar) { direction: rtl; text-align: right; font-family: 'Amiri', 'Scheherazade', 'Tahoma', sans-serif; }
-.message-wrap { font-size: 15px; line-height: 1.7; }
-"""
-
-# Removed css= from gr.Blocks to fix Gradio 6.0 warning
 with gr.Blocks() as demo:
-    gr.Markdown("# Tri-Agent Spatial Seminar: Umm Kulthum / الندوة المكانية ثلاثية الوكلاء: أم كلثوم")
-    gr.Markdown("Enter a CODE number between 1 and 151. / أدخل رقم كود بين 1 و 151.")
+    gr.Markdown("# Tri-Agent Spatial Seminar: Umm Kulthum")
+    gr.Markdown("Enter a CODE number between 1 and 151.")
     
     with gr.Row():
         with gr.Column(scale=1):
-            map_output = gr.HTML(value=generate_map_html(current_pin_coords), label="Spatial Context / السياق المكاني")
-            audio_output = gr.HTML(value="<p>Audio and references will appear here. / ستظهر الروابط الصوتية والمرجعية هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
+            map_output = gr.HTML(value=generate_map_html(current_pin_coords), label="Spatial Context")
+            audio_output = gr.HTML(value="<p>Audio and references will appear here.</p>", label="Sonic Immersion & References")
         
         with gr.Column(scale=2):
-            # Removed type="messages" to fix Gradio 6.0 TypeError
             chatbot = gr.Chatbot(height=450)
-            msg_input = gr.Textbox(label="Enter a CODE number (1-151)... / أدخل رقم الكود (1-151)...", placeholder="e.g., 13")
+            msg_input = gr.Textbox(label="Enter a CODE number (1-151)...", placeholder="e.g., 13")
             clear_btn = gr.ClearButton([msg_input, chatbot])
             
             def chat_wrapper(message, history):
@@ -203,5 +194,5 @@ with gr.Blocks() as demo:
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
 
-# Passed css to launch() and added server_port to fix Render open port detection
-demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), css=bilingual_css)
+# Fixed for Render: server_port and inbrowser=False
+demo.launch(server_name="0.0.0.0", server_port=int(os.environ.get("PORT", 7860)), inbrowser=False)
