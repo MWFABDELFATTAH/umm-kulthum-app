@@ -1,11 +1,11 @@
 import os
 import pandas as pd
-import google.generativeai as genai
+from groq import Groq
 import gradio as gr
 import re
 
-# 1. Setup Gemini API (Using your key and Gemini 3.7 Flash)
-genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LBiAAWsTD_hZIfukktgV72LwOOkhYJUvX2pnUB-81xgw"))
+# 1. Setup Groq API (Using your new key)
+client = Groq(api_key=os.environ.get("GROQ_API_KEY", "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"))
 
 # 2. Load Spatial Dataset
 df = pd.read_excel("umm_kulthum_dataset.xlsx")
@@ -25,13 +25,15 @@ def generate_map_html(coords):
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
 def call_llm(system_prompt, user_prompt):
-    # Using Gemini 3.7 Flash
-    model = genai.GenerativeModel(
-        model_name="gemini-3.7-flash",
-        system_instruction=system_prompt
+    # Using Llama 3.1 8b Instant (Extremely fast and excellent at Arabic)
+    res = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt}
+        ]
     )
-    res = model.generate_content(user_prompt)
-    return res.text
+    return res.choices[0].message.content
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
