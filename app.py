@@ -53,7 +53,6 @@ def call_llm(system_prompt, user_prompt):
             return res.choices[0].message.content
         except Exception as e:
             error_str = str(e).lower()
-            # If API key is invalid, stop trying other models and return the exact error
             if "401" in error_str or "invalid api key" in error_str or "authentication" in error_str:
                 return "⚠️ Groq API Error: Your API Key is invalid or missing. Please check your environment variables on Render."
             print(f"Model {model_name} failed: {e}")
@@ -221,7 +220,6 @@ def tri_agent_seminar(user_prompt, history):
 
 # --- GRADIO UI ---
 with gr.Blocks() as demo:
-    # Fixed Arabic Title to be academically correct
     gr.Markdown("# Geospatial Seminar: Umm Kulthum\n# الندوة الجغرافية التفاعلية: أم كلثوم")
     gr.Markdown("Enter a CODE number between 1 and 151 to begin the spatial seminar.\nأدخل رقماً بين 1 و 151 لبدء الندوة الجغرافية.")
     
@@ -243,11 +241,13 @@ with gr.Blocks() as demo:
             def chat_wrapper(message, history):
                 try:
                     response, map_html, html_media = tri_agent_seminar(message, history)
-                    history.append((message, response))
+                    # FIX: Using the dictionary format required by newer Gradio versions
+                    history.append({"role": "user", "content": message})
+                    history.append({"role": "assistant", "content": response})
                     return history, "", map_html, html_media
                 except Exception as e:
-                    # This will catch any Gradio-specific UI errors and show them in the chat
-                    history.append((message, f"UI Error: {str(e)}"))
+                    history.append({"role": "user", "content": message})
+                    history.append({"role": "assistant", "content": f"UI Error: {str(e)}"})
                     return history, "", generate_map_html(current_pin_coords), "<p>Error</p>"
 
             msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
