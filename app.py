@@ -1,51 +1,18 @@
 import os
 import pandas as pd
+import google.generativeai as genai
 import gradio as gr
 import re
-import requests
-import json
 
-# ==========================================
-# 1. SETUP GEMINI API (DIRECT REST CALL)
-# ==========================================
-# Your valid API key
-api_key = "AQ.Ab8RN6LBiAAWsTD_hZIfukktgV72LwOOkhYJUvX2pnUB-81xgw"
+# 1. Setup Gemini API (with your provided key)
+genai.configure(api_key=os.environ.get("GEMINI_API_KEY", "AQ.Ab8RN6LBiAAWsTD_hZIfukktgV72LwOOkhYJUvX2pnUB-81xgw"))
 
-# ==========================================
-# 2. FETCH AVAILABLE MODELS
-# ==========================================
-available_models = []
-try:
-    url = f"https://generativelanguage.googleapis.com/v1beta/models?key={api_key}"
-    res = requests.get(url, timeout=10)
-    data = res.json()
-    for m in data.get("models", []):
-        if "generateContent" in m.get("supportedGenerationMethods", []):
-            name = m.get("name", "").replace("models/", "")
-            available_models.append(name)
-except Exception as e:
-    print(f"Error fetching models: {e}")
+# 2. Load Spatial Dataset
+df = pd.read_excel("umm_kulthum_dataset.xlsx")
+df.columns = df.columns.str.strip()
 
-if not available_models:
-    available_models = ["gemini-1.5-flash-latest", "gemini-1.5-pro-latest"]
-
-default_model = "gemini-1.5-flash-latest"
-if "gemini-1.5-pro-latest" in available_models:
-    default_model = "gemini-1.5-pro-latest"
-
-# ==========================================
-# 3. LOAD SPATIAL DATASET
-# ==========================================
-try:
-    df = pd.read_excel("umm_kulthum_dataset.xlsx")
-    df.columns = df.columns.str.strip()
-except Exception as e:
-    print(f"Error loading Excel file: {e}")
-    df = pd.DataFrame()
-
-# ==========================================
-# 4. STATE & UTILITY FUNCTIONS
-# ==========================================
+# 3. Stateful Spatial Context Variables
+current_pin_context = ""
 current_pin_coords = [30.0444, 31.2357]
 current_pin_name = "Cairo"
 current_pin_city = "Egypt"
@@ -57,40 +24,14 @@ def generate_map_html(coords):
     map_url = f"https://www.openstreetmap.org/export/embed.html?bbox={bbox}&layer=mapnik&marker={lat},{lon}"
     return f'<iframe width="100%" height="300" src="{map_url}" frameborder="0" style="border:1px solid black"></iframe>'
 
-def call_llm(system_prompt, user_prompt, model_name):
-    """Calls Gemini directly via HTTP, bypassing the buggy python library."""
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={api_key}"
-    headers = {"Content-Type": "application/json"}
-    payload = {
-        "system_instruction": {
-            "parts": [{"text": system_prompt}]
-        },
-        "contents": [
-            {"role": "user", "parts": [{"text": user_prompt}]}
-        ],
-        "generationConfig": {
-            "temperature": 0.4,
-            "maxOutputTokens": 2000
-        }
-    }
-    
-    try:
-        res = requests.post(url, headers=headers, json=payload, timeout=120)
-        res.raise_for_status()
-        data = res.json()
-        text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        return text if text else "⚠️ No response generated."
-    except requests.exceptions.HTTPError as e:
-        error_msg = e.response.text
-        if "API key not valid" in error_msg or "401" in error_msg or "403" in error_msg:
-            return "⚠️ Gemini API Error: The API Key is invalid or has been restricted."
-        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
-            return "⚠️ Gemini API Limit: You have reached the free tier limit. Please wait a minute and try again."
-        if "404" in error_msg or "NOT_FOUND" in error_msg:
-            return f"⚠️ Model Error: The model '{model_name}' is not available. Please select a different model."
-        return f"⚠️ System Error: {error_msg}"
-    except Exception as e:
-        return f"⚠️ System Error: {str(e)}"
+def call_llm(system_prompt, user_prompt):
+    # Using Gemini 1.5 Flash for fast, reliable responses
+    model = genai.GenerativeModel(
+        model_name="gemini-1.5-flash",
+        system_instruction=system_prompt
+    )
+    res = model.generate_content(user_prompt)
+    return res.text
 
 def extract_youtube_id(url):
     if not isinstance(url, str) or url.strip() == '' or url.strip() == '*':
@@ -106,29 +47,24 @@ def extract_all_urls(text):
     urls = re.findall(r'(https?://[^\s]+)', text)
     return [url.rstrip('.,;)') for url in urls]
 
-# ==========================================
-# 5. TRI-AGENT SEMINAR CORE LOGIC
-# ==========================================
-def tri_agent_seminar(user_prompt, history, selected_model):
-    global current_pin_coords, current_pin_name, current_pin_city
-    
+def tri_agent_seminar(user_prompt, history):
     try:
-        if df.empty:
-            return "Error: Dataset failed to load. Did you upload 'umm_kulthum_dataset.xlsx' to Render?", generate_map_html(current_pin_coords), ""
+        global current_pin_context, current_pin_coords, current_pin_name, current_pin_city
+        match_df = pd.DataFrame()
         
         numbers = re.findall(r'\b(\d+)\b', user_prompt)
         if not numbers:
-            return "Please enter a valid CODE number between 1 and 151.\nيرجى إدخال رقم صالح بين 1 و 151.", generate_map_html(current_pin_coords), ""
+            return "Please enter a valid CODE number between 1 and 151.\n\nالرجاء إدخال رقم كود صحيح بين 1 و 151.", generate_map_html(current_pin_coords), ""
         
         code_num = numbers[0]
         
         if 'CODE' in df.columns:
             match_df = df[df['CODE'].astype(str).str.strip() == code_num]
         else:
-            return "Error: Column 'CODE' not found in dataset.", generate_map_html(current_pin_coords), ""
+            return f"Error: Column 'CODE' not found.", generate_map_html(current_pin_coords), ""
         
         if match_df.empty:
-            return f"Could not find a location with CODE {code_num}.\nتعذر العثور على موقع يحمل الرقم {code_num}.", generate_map_html(current_pin_coords), ""
+            return f"Could not find a location with CODE {code_num}.\n\nلم يتم العثور على موقع بهذا الكود {code_num}.", generate_map_html(current_pin_coords), ""
         
         row = match_df.iloc[0]
         
@@ -138,7 +74,7 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         city_val = row.get('City/ Country')
         current_pin_city = str(city_val) if pd.notna(city_val) else 'Unknown Location'
         
-        pin_context = f"""
+        current_pin_context = f"""
         STRICT RULE: You must ONLY use the information provided below. Do not invent or hallucinate any facts, dates, people, or songs.
         You MUST incorporate details from EVERY cell of the provided dataset into your response.
         
@@ -174,10 +110,11 @@ def tri_agent_seminar(user_prompt, history, selected_model):
         img_refs = extract_all_urls(row.get('Images / Reference', ''))
         
         media_html = ""
+        
         for url in av_links:
             vid_id = extract_youtube_id(url)
             if vid_id:
-                media_html += f'<iframe width="100%" height="315" src="https://www.youtube.com/embed/{vid_id}" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe><br><br>'
+                media_html += f'<iframe width="100%" height="315" src="https://www.youtube.com/embed/{vid_id}?autoplay=1" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe><br><br>'
                 break
                 
         if av_links:
@@ -191,106 +128,77 @@ def tri_agent_seminar(user_prompt, history, selected_model):
                 media_html += f'<a href="{url}" target="_blank" style="display: block; color: blue; text-decoration: underline;">{url}</a>'
                 
         if not media_html:
-            media_html = "<p>No audio/video or reference links available for this location.<br>لا توجد روابط صوتية أو مرئية لهذا الموقع.</p>"
+            media_html = "<p>No audio/video or reference links available for this location.</p>"
         
-        full_prompt = pin_context + "\nUser Question: " + user_prompt
-        
-        bilingual_format = """
-        CRITICAL LANGUAGE INSTRUCTIONS:
-        You MUST provide your analysis in BOTH English and Standard Arabic (اللغة العربية الفصحى).
-        Format your response EXACTLY like this:
-        🇬🇧 English:
-        [Your 2 paragraphs in English here]
-
-        🇸🇦 العربية:
-        [Your 2 paragraphs in Arabic here.
-        STRICT ARABIC RULES:
-        1. Use ONLY Modern Standard Arabic (الفصحى). Do NOT use any colloquial dialects (عامية).
-        2. Do NOT translate literally from the English version. Compose the Arabic text natively so it sounds eloquent, academic, and natural to an Arab academic.
-        3. Avoid exaggeration. Keep the tone realistic, factual, and deeply analytical.
-        4. Ensure perfect grammar and appropriate academic terminology.]
-        """
+        full_prompt = current_pin_context + "\nUser Question: " + user_prompt
         
         agent1_system = (
             "You are Umm Kulthum. Answer the user question based ONLY on the provided map context. "
             "You MUST incorporate details from EVERY cell of the provided dataset (Site Name, Date, People, Songs, Description, etc.) into your response. "
             "Do NOT hallucinate or invent any information. Speak with a clear, personal, and human touch, as if you are remembering your own life, but do not exaggerate. "
-            "Your response MUST be exactly 2 paragraphs long for each language. "
-            + bilingual_format
+            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
+            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
         )
-        response_umm = call_llm(agent1_system, full_prompt, selected_model)
+        response_umm = call_llm(agent1_system, full_prompt)
         
         agent2_system = (
             "You are the historian Pierre Nora. Analyze the map spot and Umm Kulthum's response as a 'lieu de mémoire' (site of memory). "
             "You MUST reference the specific details provided in the dataset (dates, people, descriptions) to support your analysis. "
             "Explain how memory crystallizes here and why it matters based strictly on the provided data. "
-            "Your response MUST be exactly 2 paragraphs long for each language. "
-            + bilingual_format
+            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
+            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
         )
         agent2_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm
-        response_nora = call_llm(agent2_system, agent2_prompt, selected_model)
+        response_nora = call_llm(agent2_system, agent2_prompt)
         
         agent3_system = (
             "You are the philosopher Henri Lefebvre. Analyze the map spot using the spatial triad (perceived, conceived, lived space). "
             "You MUST reference the specific details provided in the dataset (event type, location info, descriptions) to support your analysis. "
             "Focus on the social production of space, gender, and power based strictly on the provided data. "
-            "Your response MUST be exactly 2 paragraphs long for each language. "
-            + bilingual_format
+            "You MUST respond BILINGUALLY: first in English (exactly 2 paragraphs), then in Arabic (exactly 2 paragraphs). "
+            "Use this format:\n[English]\n<2 paragraphs>\n\n[العربية]\n<2 paragraphs>"
         )
         agent3_prompt = full_prompt + "\nUmm Kulthum's response: " + response_umm + "\nNora's response: " + response_nora
-        response_lefebvre = call_llm(agent3_system, agent3_prompt, selected_model)
+        response_lefebvre = call_llm(agent3_system, agent3_prompt)
         
-        final_output = f"**📍 Map Synchronized to / تمت مزامنة الخريطة مع: {current_pin_name} ({current_pin_city})**\n\n*Model Used: {selected_model}*\n\n---\n\n"
-        final_output += f"**1. Umm Kulthum (Experiential / التجربة المعاشة):**\n{response_umm}\n\n---\n\n"
-        final_output += f"**2. Pierre Nora (Memory / ذاكرة المكان):**\n{response_nora}\n\n---\n\n"
-        final_output += f"**3. Henri Lefebvre (Space / إنتاج الفضاء):**\n{response_lefebvre}"
+        final_output = f"**📍 Map Synchronized to: {current_pin_name} ({current_pin_city})**\n\n"
+        final_output += f"**Umm Kulthum (Experiential) / أم كلثوم (الجانب التجريبي):**\n{response_umm}\n\n"
+        final_output += f"**Pierre Nora (Memory) / بيير نورا (الذاكرة):**\n{response_nora}\n\n"
+        final_output += f"**Henri Lefebvre (Space) / هنري لوفيفر (المكان):**\n{response_lefebvre}"
         
         return final_output, generate_map_html(current_pin_coords), media_html
 
     except Exception as e:
-        error_msg = f"**An internal error occurred / حدث خطأ داخلي:** {str(e)}"
+        error_msg = f"**An internal error occurred:** {str(e)}\n\n**حدث خطأ داخلي:** {str(e)}"
         return error_msg, generate_map_html(current_pin_coords), "<p>Error loading media.</p>"
 
-# ==========================================
-# 6. GRADIO UI
-# ==========================================
-with gr.Blocks() as demo:
-    gr.Markdown("# Geospatial Seminar: Umm Kulthum\n# الندوة الجغرافية التفاعلية: أم كلثوم")
-    gr.Markdown("Enter a CODE number between 1 and 151 to begin the spatial seminar.\nأدخل رقماً بين 1 و 151 لبدء الندوة الجغرافية.")
+# Bilingual CSS with RTL support for Arabic
+bilingual_css = """
+.gradio-container { direction: ltr; }
+.arabic, [lang="ar"], :lang(ar) { direction: rtl; text-align: right; font-family: 'Amiri', 'Scheherazade', 'Tahoma', sans-serif; }
+.message-wrap { font-size: 15px; line-height: 1.7; }
+"""
+
+with gr.Blocks(css=bilingual_css) as demo:
+    gr.Markdown("# Tri-Agent Spatial Seminar: Umm Kulthum / الندوة المكانية ثلاثية الوكلاء: أم كلثوم")
+    gr.Markdown("Enter a CODE number between 1 and 151. / أدخل رقم كود بين 1 و 151.")
     
     with gr.Row():
         with gr.Column(scale=1):
             map_output = gr.HTML(value=generate_map_html(current_pin_coords), label="Spatial Context / السياق المكاني")
-            audio_output = gr.HTML(value="<p>Audio and references will appear here.<br>ستظهر الروابط الصوتية والمراجع هنا.</p>", label="Sonic Immersion & References / المراجع والروابط")
+            audio_output = gr.HTML(value="<p>Audio and references will appear here. / ستظهر الروابط الصوتية والمرجعية هنا.</p>", label="Sonic Immersion & References / الروابط الصوتية والمراجع")
         
         with gr.Column(scale=2):
-            model_selector = gr.Dropdown(
-                choices=available_models,
-                value=default_model,
-                label="Select AI Model / اختر نموذج الذكاء الاصطناعي",
-                interactive=True
-            )
-            chatbot = gr.Chatbot(height=450) 
-            msg_input = gr.Textbox(
-                label="Enter a CODE number (1-151) / أدخل الرقم (1-151)...", 
-                placeholder="e.g., 13"
-            )
-            with gr.Row():
-                submit_btn = gr.Button("Submit / إرسال")
-                clear_btn = gr.ClearButton([msg_input, chatbot], value="Clear / مسح")
+            chatbot = gr.Chatbot(height=450, type="messages")
+            msg_input = gr.Textbox(label="Enter a CODE number (1-151)... / أدخل رقم الكود (1-151)...", placeholder="e.g., 13")
+            clear_btn = gr.ClearButton([msg_input, chatbot])
             
-            def chat_wrapper(message, history, selected_model):
-                try:
-                    response, map_html, html_media = tri_agent_seminar(message, history, selected_model)
-                    history.append({"role": "user", "content": message})
-                    history.append({"role": "assistant", "content": response})
-                    return history, "", map_html, html_media
-                except Exception as e:
-                    history.append({"role": "user", "content": message})
-                    history.append({"role": "assistant", "content": f"UI Error: {str(e)}"})
-                    return history, "", generate_map_html(current_pin_coords), "<p>Error</p>"
+            def chat_wrapper(message, history):
+                response, map_html, html_media = tri_agent_seminar(message, history)
+                history.append({"role": "user", "content": message})
+                history.append({"role": "assistant", "content": response})
+                return history, "", map_html, html_media
 
-            msg_input.submit(chat_wrapper, [msg_input, chatbot, model_selector], [chatbot, msg_input, map_output, audio_output])
-            submit_btn.click(chat_wrapper, [msg_input, chatbot, model_selector], [chatbot, msg_input, map_output, audio_output])
+            msg_input.submit(chat_wrapper, [msg_input, chatbot], [chatbot, msg_input, map_output, audio_output])
 
 demo.launch(server_name="0.0.0.0", inbrowser=True)
